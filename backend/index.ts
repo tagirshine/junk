@@ -4,13 +4,14 @@ import { Schema, model, connect, Document } from 'mongoose';
 import {InlineKeyboardMarkup, InlineKeyboardButton} from "node-telegram-bot-api";
 import localization from "./localization";
 import TelegramBot, {
-  CallbackGame, ForceReply,
-  LoginUrl, ParseMode,
+   ForceReply,
+   ParseMode,
   ReplyKeyboardMarkup,
   ReplyKeyboardRemove,
-  WebAppInfo
 } from 'node-telegram-bot-api';
 import cors from 'cors';
+import { UserState, UserStates , UserNewData} from './types';
+
 dotenv.config();
 
 const app: Express = express();
@@ -18,11 +19,24 @@ const port = process.env.PORT;
 const bot = new TelegramBot(process.env.TELEGRAM_TOKEN??'' , {polling: true});
 
 
-// import {InlineKeyboardMarkup, InlineKeyboardButton} from './types';
+
+const userStates : UserStates = {};
+const userNewData : UserNewData = {};
+
+function updateUserState(userId: number, newState: UserState): void {
+  userStates[userId] = newState;
+}
+
+function getUserState(userId: number): UserState {
+  return userStates[userId] || UserState.WELCOME;
+}
+
+
+
 
 const elem : InlineKeyboardButton = {
   text: localization.add,
-  callback_data: 'edit'
+  callback_data: 'add_location'
 }
 const mark : InlineKeyboardMarkup = {
   inline_keyboard: [[ elem ]]
@@ -45,24 +59,19 @@ interface Trash extends Document {
 
 const pointSchema = new Schema<Point>({
   type: {
-// @ts-ignore
     type: String,
     enum: ['Point'],
     required: true,
   },
-// @ts-ignore
 
   coordinates: {
-// @ts-ignore
     type: [Number],
     required: true,
   },
 });
 
 
-// @ts-ignore
 const trashSchema = new Schema<Trash>({
-// @ts-ignore
   name: String, description: String,   image: String,  gps: pointSchema,  report_by: String,  date: String,
 });
 
@@ -103,61 +112,106 @@ interface SendMessageOptions extends SendBasicOptions {
   disable_web_page_preview?: boolean | undefined;
 }
 
-
-
-
-bot.on('message', async (msg: any /*, match*/) : Promise<void>  => {
-  const chatId = msg.chat.id;
-
-  if (msg.text === localization.add) {
-    console.log('measo')
+bot.on('callback_query', async function onCallbackQuery(callbackQuery : any) {
+  // const msg = callbackQuery.message;
+  console.log(callbackQuery.data)
+  const chatId = callbackQuery.from.id;
+  if (callbackQuery.data==='add_location') {
+    // set UserState to AWAITING NAME
+    updateUserState(chatId, UserState.AWAITING_NAME);
+    await bot.sendMessage(chatId, localization.input_name);
   }
-
-  if (msg?.location) {
-    console.log(msg.location)
-    await createLocation(msg.location.latitude, msg.location.longitude)
-    console.log('локация добавленна')
-    bot.sendMessage(chatId, `локация добавленна ${msg.location.latitude} ${msg.location.longitude}`);
-  }
-
-  const options : SendMessageOptions = { //ReplyKeyboardMarkup
-    reply_markup: {
-      resize_keyboard: true,
-      one_time_keyboard: true,
-      keyboard: [
-        [elem],
-        // [elem]
-      ],
-    },
-    };
-  // console.log('send mes');
-  bot.sendMessage(chatId, "Спасибо за участие!", options);
-
 });
+
+bot.on('message', async (msg: TelegramBot.Message) => {
+  const chatId: number  = msg.chat.id; //TODO: check
+
+  // console.log(msg)
+
+
+  // Проверяем состояние пользователя
+  const currentState = getUserState(chatId);
+  // console.log(JSON.stringify(userStates));
+  switch (currentState) {
+    case UserState.WELCOME:
+      // console.log('WELCOME')
+
+      const options : SendMessageOptions = { //ReplyKeyboardMarkup
+        reply_markup: mark
+      };
+      // Приветствуем пользователя
+      await bot.sendMessage(chatId, localization.welcome);
+      await bot.sendMessage(chatId, localization.welcome2+process.env.WEBSITE_URL, options);
+      break;
+    case UserState.AWAITING_NAME:
+      console.log('AWAITING_NAME')
+
+      if (!userNewData[chatId]) {
+        userNewData[chatId] = {}; // Инициализация пустым объектом, если ранее не существовал
+      }
+      userNewData[chatId] = Object.assign( userNewData[chatId] , {name: msg.text} )
+
+
+      // Сохраняем имя и переходим к следующему шагу
+      updateUserState(chatId, UserState.AWAITING_DESCRIPTION);
+      await bot.sendMessage(chatId, localization.input_description);
+      break;
+    case UserState.AWAITING_DESCRIPTION:
+
+      // Схожая логика для описания
+      if (!userNewData[chatId]) {
+        userNewData[chatId] = {}; // Инициализация пустым объектом, если ранее не существовал
+      }
+      userNewData[chatId] = Object.assign( userNewData[chatId] , {description: msg.text} )
+      updateUserState(chatId, UserState.AWAITING_PHOTO);
+      await bot.sendMessage(chatId, localization.input_photo);
+
+      break;
+    case UserState.AWAITING_PHOTO:
+      // Обработка фото
+      if (!userNewData[chatId]) {
+        userNewData[chatId] = {}; // Инициализация пустым объектом, если ранее не существовал
+      }
+
+      if (msg.photo) {
+        const photoArray = msg.photo;
+        const photo = photoArray[photoArray.length - 1]; // Берем самую большую версию
+        const fileId = photo.file_id;
+
+        console.log(photo)
+        // Теперь fileId можно использовать для получения файла фотографии
+      } else {
+        await bot.sendMessage(chatId, localization.photo_not_found);
+      }
+
+      // Сохраняем фото и переходим к следующему шагу
+      break;
+    case UserState.AWAITING_LOCATION:
+      if (msg.location) {
+        // Обрабатываем и сохраняем локацию
+        updateUserState(chatId, UserState.COMPLETED);
+      }
+      break;
+    case UserState.COMPLETED:
+      // Процесс завершен
+      break;
+    default:
+      // Начальное состояние или ошибка
+      updateUserState(chatId, UserState.AWAITING_NAME);
+      break;
+  }
+});
+
+
+
 console.log('Bot started');
 bot.on('callback_query', function onCallbackQuery(callbackQuery : any) {
 
-  const action = callbackQuery.data;
   const msg = callbackQuery.message;
-  // const opts = {
-  //   chat_id: msg.chat.id,
-  //   message_id: msg.message_id,
-  // };
-  console.log(msg)
-  console.log('smtng')
-  // if (action === '1') {
-  //   text = 'You hit button 1';
-  // }
-
-  // bot.editMessageText(text, opts);
-  // console.log
 });
 
 
-
-
 app.get('/', cors(), async (req: Request, res: Response) => {
-
   const trashes = await getTrashes();
   return res.send(trashes);
 });

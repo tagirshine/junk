@@ -19,35 +19,38 @@ const mongoose_1 = require("mongoose");
 const localization_1 = __importDefault(require("./localization"));
 const node_telegram_bot_api_1 = __importDefault(require("node-telegram-bot-api"));
 const cors_1 = __importDefault(require("cors"));
+const types_1 = require("./types");
 dotenv_1.default.config();
 const app = (0, express_1.default)();
 const port = process.env.PORT;
 const bot = new node_telegram_bot_api_1.default((_a = process.env.TELEGRAM_TOKEN) !== null && _a !== void 0 ? _a : '', { polling: true });
-// import {InlineKeyboardMarkup, InlineKeyboardButton} from './types';
+const userStates = {};
+const userNewData = {};
+function updateUserState(userId, newState) {
+    userStates[userId] = newState;
+}
+function getUserState(userId) {
+    return userStates[userId] || types_1.UserState.WELCOME;
+}
 const elem = {
     text: localization_1.default.add,
-    callback_data: 'edit'
+    callback_data: 'add_location'
 };
 const mark = {
     inline_keyboard: [[elem]]
 };
 const pointSchema = new mongoose_1.Schema({
     type: {
-        // @ts-ignore
         type: String,
         enum: ['Point'],
         required: true,
     },
-    // @ts-ignore
     coordinates: {
-        // @ts-ignore
         type: [Number],
         required: true,
     },
 });
-// @ts-ignore
 const trashSchema = new mongoose_1.Schema({
-    // @ts-ignore
     name: String, description: String, image: String, gps: pointSchema, report_by: String, date: String,
 });
 function createLocation(lat, lon) {
@@ -73,45 +76,88 @@ function getTrashes() {
         return yield Trash.find({}).exec();
     });
 }
-bot.on('message', (msg /*, match*/) => __awaiter(void 0, void 0, void 0, function* () {
-    const chatId = msg.chat.id;
-    if (msg.text === localization_1.default.add) {
-        console.log('measo');
+bot.on('callback_query', function onCallbackQuery(callbackQuery) {
+    return __awaiter(this, void 0, void 0, function* () {
+        // const msg = callbackQuery.message;
+        console.log(callbackQuery.data);
+        const chatId = callbackQuery.from.id;
+        if (callbackQuery.data === 'add_location') {
+            // set UserState to AWAITING NAME
+            updateUserState(chatId, types_1.UserState.AWAITING_NAME);
+            yield bot.sendMessage(chatId, localization_1.default.input_name);
+        }
+    });
+});
+bot.on('message', (msg) => __awaiter(void 0, void 0, void 0, function* () {
+    const chatId = msg.chat.id; //TODO: check
+    // console.log(msg)
+    // Проверяем состояние пользователя
+    const currentState = getUserState(chatId);
+    // console.log(JSON.stringify(userStates));
+    switch (currentState) {
+        case types_1.UserState.WELCOME:
+            // console.log('WELCOME')
+            const options = {
+                reply_markup: mark
+            };
+            // Приветствуем пользователя
+            yield bot.sendMessage(chatId, localization_1.default.welcome);
+            yield bot.sendMessage(chatId, localization_1.default.welcome2 + process.env.WEBSITE_URL, options);
+            break;
+        case types_1.UserState.AWAITING_NAME:
+            console.log('AWAITING_NAME');
+            if (!userNewData[chatId]) {
+                userNewData[chatId] = {}; // Инициализация пустым объектом, если ранее не существовал
+            }
+            userNewData[chatId] = Object.assign(userNewData[chatId], { name: msg.text });
+            // Сохраняем имя и переходим к следующему шагу
+            updateUserState(chatId, types_1.UserState.AWAITING_DESCRIPTION);
+            yield bot.sendMessage(chatId, localization_1.default.input_description);
+            break;
+        case types_1.UserState.AWAITING_DESCRIPTION:
+            // Схожая логика для описания
+            if (!userNewData[chatId]) {
+                userNewData[chatId] = {}; // Инициализация пустым объектом, если ранее не существовал
+            }
+            userNewData[chatId] = Object.assign(userNewData[chatId], { description: msg.text });
+            updateUserState(chatId, types_1.UserState.AWAITING_PHOTO);
+            yield bot.sendMessage(chatId, localization_1.default.input_photo);
+            break;
+        case types_1.UserState.AWAITING_PHOTO:
+            // Обработка фото
+            if (!userNewData[chatId]) {
+                userNewData[chatId] = {}; // Инициализация пустым объектом, если ранее не существовал
+            }
+            if (msg.photo) {
+                const photoArray = msg.photo;
+                const photo = photoArray[photoArray.length - 1]; // Берем самую большую версию
+                const fileId = photo.file_id;
+                console.log(photo);
+                // Теперь fileId можно использовать для получения файла фотографии
+            }
+            else {
+                yield bot.sendMessage(chatId, localization_1.default.photo_not_found);
+            }
+            // Сохраняем фото и переходим к следующему шагу
+            break;
+        case types_1.UserState.AWAITING_LOCATION:
+            if (msg.location) {
+                // Обрабатываем и сохраняем локацию
+                updateUserState(chatId, types_1.UserState.COMPLETED);
+            }
+            break;
+        case types_1.UserState.COMPLETED:
+            // Процесс завершен
+            break;
+        default:
+            // Начальное состояние или ошибка
+            updateUserState(chatId, types_1.UserState.AWAITING_NAME);
+            break;
     }
-    if (msg === null || msg === void 0 ? void 0 : msg.location) {
-        console.log(msg.location);
-        yield createLocation(msg.location.latitude, msg.location.longitude);
-        console.log('локация добавленна');
-        bot.sendMessage(chatId, `локация добавленна ${msg.location.latitude} ${msg.location.longitude}`);
-    }
-    const options = {
-        reply_markup: {
-            resize_keyboard: true,
-            one_time_keyboard: true,
-            keyboard: [
-                [elem],
-                // [elem]
-            ],
-        },
-    };
-    // console.log('send mes');
-    bot.sendMessage(chatId, "Спасибо за участие!", options);
 }));
 console.log('Bot started');
 bot.on('callback_query', function onCallbackQuery(callbackQuery) {
-    const action = callbackQuery.data;
     const msg = callbackQuery.message;
-    // const opts = {
-    //   chat_id: msg.chat.id,
-    //   message_id: msg.message_id,
-    // };
-    console.log(msg);
-    console.log('smtng');
-    // if (action === '1') {
-    //   text = 'You hit button 1';
-    // }
-    // bot.editMessageText(text, opts);
-    // console.log
 });
 app.get('/', (0, cors_1.default)(), (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     const trashes = yield getTrashes();

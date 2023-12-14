@@ -14,3 +14,32 @@
 //   callback_game?: CallbackGame | undefined;
 //   pay?: boolean | undefined;
 // }
+
+// create tupe with this elements
+//    AWAITING_NAME:
+//   AWAITING_DESCRIPTION:
+//   AWAITING_PHOTO
+//   AWAITING_LOCATION
+//   COMPLETED
+
+export interface UserStates {
+  [key: number]: UserState;
+}
+interface Location {
+  name?: string;
+  description?: string;
+  photo?: string;
+  location?: string;
+}
+
+export interface UserNewData {
+  [key: number]: Location;
+}
+export enum UserState {
+  WELCOME,
+  AWAITING_NAME,
+  AWAITING_DESCRIPTION,
+  AWAITING_PHOTO,
+  AWAITING_LOCATION,
+  COMPLETED,
+}
