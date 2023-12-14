@@ -11,7 +11,6 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
-var _a;
 Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = __importDefault(require("express"));
 const dotenv_1 = __importDefault(require("dotenv"));
@@ -23,7 +22,8 @@ const types_1 = require("./types");
 dotenv_1.default.config();
 const app = (0, express_1.default)();
 const port = process.env.PORT;
-const bot = new node_telegram_bot_api_1.default((_a = process.env.TELEGRAM_TOKEN) !== null && _a !== void 0 ? _a : '', { polling: true });
+const botToken = process.env.TELEGRAM_TOKEN;
+const bot = new node_telegram_bot_api_1.default(botToken !== null && botToken !== void 0 ? botToken : '', { polling: true });
 const userStates = {};
 const userNewData = {};
 function updateUserState(userId, newState) {
@@ -90,7 +90,6 @@ bot.on('callback_query', function onCallbackQuery(callbackQuery) {
 });
 bot.on('message', (msg) => __awaiter(void 0, void 0, void 0, function* () {
     const chatId = msg.chat.id; //TODO: check
-    // console.log(msg)
     // Проверяем состояние пользователя
     const currentState = getUserState(chatId);
     // console.log(JSON.stringify(userStates));
@@ -132,8 +131,8 @@ bot.on('message', (msg) => __awaiter(void 0, void 0, void 0, function* () {
                 const photoArray = msg.photo;
                 const photo = photoArray[photoArray.length - 1]; // Берем самую большую версию
                 const fileId = photo.file_id;
-                console.log(photo);
-                // Теперь fileId можно использовать для получения файла фотографии
+                userNewData[chatId] = Object.assign(userNewData[chatId], { photo: [fileId] });
+                updateUserState(chatId, types_1.UserState.AWAITING_LOCATION); // TODO: добавить сообщение
             }
             else {
                 yield bot.sendMessage(chatId, localization_1.default.photo_not_found);
@@ -145,13 +144,30 @@ bot.on('message', (msg) => __awaiter(void 0, void 0, void 0, function* () {
                 // Обрабатываем и сохраняем локацию
                 updateUserState(chatId, types_1.UserState.COMPLETED);
             }
+            if (msg.photo) {
+                console.log('eщё одно фото c');
+                const photoArray = msg.photo;
+                const photo = photoArray[photoArray.length - 1]; // Берем самую большую версию
+                const fileId = photo.file_id;
+                userNewData[chatId] = Object.assign(userNewData[chatId], { photo: [fileId] });
+            }
+            console.log('ZAVERSHENO LETS LOOK');
+            console.log(userNewData[chatId]);
             break;
         case types_1.UserState.COMPLETED:
+            // bot.getFile(fileId).then(file => {
+            //   const filePath = file.file_path;
+            //   const fileUrl = `https://api.telegram.org/file/bot${botToken}/${filePath}`;
+            //
+            //   // Теперь у вас есть URL файла, который можно использовать
+            //   console.log(fileUrl);
+            //
+            // });
             // Процесс завершен
             break;
         default:
             // Начальное состояние или ошибка
-            updateUserState(chatId, types_1.UserState.AWAITING_NAME);
+            updateUserState(chatId, types_1.UserState.WELCOME);
             break;
     }
 }));

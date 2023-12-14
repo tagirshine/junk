@@ -16,7 +16,9 @@ dotenv.config();
 
 const app: Express = express();
 const port = process.env.PORT;
-const bot = new TelegramBot(process.env.TELEGRAM_TOKEN??'' , {polling: true});
+
+const botToken = process.env.TELEGRAM_TOKEN;
+const bot = new TelegramBot(botToken??'' , {polling: true});
 
 
 
@@ -126,9 +128,6 @@ bot.on('callback_query', async function onCallbackQuery(callbackQuery : any) {
 bot.on('message', async (msg: TelegramBot.Message) => {
   const chatId: number  = msg.chat.id; //TODO: check
 
-  // console.log(msg)
-
-
   // Проверяем состояние пользователя
   const currentState = getUserState(chatId);
   // console.log(JSON.stringify(userStates));
@@ -178,8 +177,9 @@ bot.on('message', async (msg: TelegramBot.Message) => {
         const photo = photoArray[photoArray.length - 1]; // Берем самую большую версию
         const fileId = photo.file_id;
 
-        console.log(photo)
-        // Теперь fileId можно использовать для получения файла фотографии
+        userNewData[chatId] = Object.assign( userNewData[chatId] , {photo: [fileId]} )
+
+        updateUserState(chatId, UserState.AWAITING_LOCATION); // TODO: добавить сообщение
       } else {
         await bot.sendMessage(chatId, localization.photo_not_found);
       }
@@ -191,13 +191,36 @@ bot.on('message', async (msg: TelegramBot.Message) => {
         // Обрабатываем и сохраняем локацию
         updateUserState(chatId, UserState.COMPLETED);
       }
+      if (msg.photo) {
+        console.log('eщё одно фото c')
+        const photoArray = msg.photo;
+        const photo = photoArray[photoArray.length - 1]; // Берем самую большую версию
+        const fileId = photo.file_id;
+
+        userNewData[chatId] = Object.assign( userNewData[chatId] , {photo: [fileId]} )
+      }
+
+      console.log('ZAVERSHENO LETS LOOK')
+      console.log(userNewData[chatId])
+
       break;
     case UserState.COMPLETED:
+
+
+      // bot.getFile(fileId).then(file => {
+      //   const filePath = file.file_path;
+      //   const fileUrl = `https://api.telegram.org/file/bot${botToken}/${filePath}`;
+      //
+      //   // Теперь у вас есть URL файла, который можно использовать
+      //   console.log(fileUrl);
+      //
+      // });
+
       // Процесс завершен
       break;
     default:
       // Начальное состояние или ошибка
-      updateUserState(chatId, UserState.AWAITING_NAME);
+      updateUserState(chatId, UserState.WELCOME);
       break;
   }
 });

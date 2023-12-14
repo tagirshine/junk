@@ -28,8 +28,8 @@ export interface UserStates {
 interface Location {
   name?: string;
   description?: string;
-  photo?: string;
-  location?: string;
+  photo?: string[];
+  location?: [number, number];
 }
 
 export interface UserNewData {
