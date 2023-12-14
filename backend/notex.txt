@@ -1,0 +1,13 @@
+create db
+
+docker exec -it finalmongo-mongo-1 mongosh
+
+docker exec -it finalmongo-mongo-1 mongosh -u root
+
+
+use final
+final> db.createUser({user: "finalUser", pwd: "password", roles: ["readWrite","dbAdmin"]})
+
+
+
+сохранять картинку из диалога, описание, название
