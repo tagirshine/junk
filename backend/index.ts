@@ -17,10 +17,10 @@ dotenv.config();
 const app: Express = express();
 const port = process.env.PORT;
 
+const mongoToken: string = process.env.MONGO_TOKEN ?? '';
+
 const botToken = process.env.TELEGRAM_TOKEN;
 const bot = new TelegramBot(botToken??'' , {polling: true});
-
-
 
 const userStates : UserStates = {};
 const userNewData : UserNewData = {};
@@ -32,9 +32,6 @@ function updateUserState(userId: number, newState: UserState): void {
 function getUserState(userId: number): UserState {
   return userStates[userId] || UserState.WELCOME;
 }
-
-
-
 
 const elem : InlineKeyboardButton = {
   text: localization.add,
@@ -80,7 +77,9 @@ const trashSchema = new Schema<Trash>({
 
 async function createLocation(lat: number, lon: number) : Promise<void> {
   console.log('create location')
-  await connect('mongodb://finalUser:password@127.0.0.1:27017/final');
+  
+  
+  await connect(mongoToken);
   const TrashModel = model<Trash>('Trash', trashSchema);
   const trashDocument = new TrashModel({
     name: 'name',
@@ -95,7 +94,7 @@ async function createLocation(lat: number, lon: number) : Promise<void> {
 }
 
 async function getTrashes() {
-  await  connect('mongodb://finalUser:password@127.0.0.1:27017/final');
+  await  connect(mongoToken);
   const Trash = model('Trash', trashSchema);
   return await Trash.find({}).exec();
 }

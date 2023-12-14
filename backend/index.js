@@ -11,6 +11,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
+var _a;
 Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = __importDefault(require("express"));
 const dotenv_1 = __importDefault(require("dotenv"));
@@ -22,6 +23,7 @@ const types_1 = require("./types");
 dotenv_1.default.config();
 const app = (0, express_1.default)();
 const port = process.env.PORT;
+const mongoToken = (_a = process.env.MONGO_TOKEN) !== null && _a !== void 0 ? _a : '';
 const botToken = process.env.TELEGRAM_TOKEN;
 const bot = new node_telegram_bot_api_1.default(botToken !== null && botToken !== void 0 ? botToken : '', { polling: true });
 const userStates = {};
@@ -56,7 +58,7 @@ const trashSchema = new mongoose_1.Schema({
 function createLocation(lat, lon) {
     return __awaiter(this, void 0, void 0, function* () {
         console.log('create location');
-        yield (0, mongoose_1.connect)('mongodb://finalUser:password@127.0.0.1:27017/final');
+        yield (0, mongoose_1.connect)(mongoToken);
         const TrashModel = (0, mongoose_1.model)('Trash', trashSchema);
         const trashDocument = new TrashModel({
             name: 'name',
@@ -71,7 +73,7 @@ function createLocation(lat, lon) {
 }
 function getTrashes() {
     return __awaiter(this, void 0, void 0, function* () {
-        yield (0, mongoose_1.connect)('mongodb://finalUser:password@127.0.0.1:27017/final');
+        yield (0, mongoose_1.connect)(mongoToken);
         const Trash = (0, mongoose_1.model)('Trash', trashSchema);
         return yield Trash.find({}).exec();
     });
