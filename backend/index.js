@@ -11,7 +11,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
-var _a;
+var _a, _b;
 Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = __importDefault(require("express"));
 const dotenv_1 = __importDefault(require("dotenv"));
@@ -30,7 +30,7 @@ const botToken = process.env.TELEGRAM_TOKEN;
 const bot = new node_telegram_bot_api_1.default(botToken !== null && botToken !== void 0 ? botToken : '', { polling: true });
 const userStates = {};
 const userNewData = {};
-const imagesRootUrl = './images/';
+const imagesRootUrl = (_b = process.env.IMAGES_ROOT_URL) !== null && _b !== void 0 ? _b : './images/';
 function updateUserState(userId, newState) {
     userStates[userId] = newState;
 }
@@ -82,15 +82,16 @@ function downloadFile(fileId) {
                 response.data.pipe(writer);
                 let error = null;
                 writer.on('error', err => {
+                    console.log('ошибка во время записи файла');
                     error = err;
                     writer.close();
-                    console.log('ошибка во время записи файла');
                     reject(err);
                 });
                 writer.on('close', () => {
                     if (!error) {
-                        resolve(true);
                         console.log('файл записан ');
+                        console.log(outputLocationPath);
+                        resolve(true);
                     }
                 });
             });
@@ -122,6 +123,19 @@ function createLocation(chatId) {
         });
         yield trashDocument.save();
         updateUserState(chatId, types_1.UserState.COMPLETED);
+    });
+}
+function deleteAllTrashes() {
+    return __awaiter(this, void 0, void 0, function* () {
+        try {
+            yield (0, mongoose_1.connect)(mongoToken);
+            const TrashModel = (0, mongoose_1.model)('Trash', trashSchema);
+            yield TrashModel.deleteMany({}); // Удаление всех документов
+            console.log('Все документы успешно удалены');
+        }
+        catch (error) {
+            console.error('Ошибка при удалении документов:', error);
+        }
     });
 }
 function getTrashes() {
@@ -230,6 +244,12 @@ bot.on('callback_query', function onCallbackQuery(callbackQuery) {
 });
 app.get('/', (0, cors_1.default)(), (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     const trashes = yield getTrashes();
+    res.header('Access-Control-Allow-Origin', '*'); // Change * to a specific origin if needed
+    return res.send(trashes);
+}));
+app.get('/wkakwdkawkdkawkdkawkdkawkdkawd', (0, cors_1.default)(), (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    const trashes = yield deleteAllTrashes();
+    res.header('Access-Control-Allow-Origin', '*'); // Change * to a specific origin if needed
     return res.send(trashes);
 }));
 app.listen(port, () => {

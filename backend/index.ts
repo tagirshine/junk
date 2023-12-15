@@ -163,6 +163,20 @@ async function createLocation(chatId: number) :  Promise<void> {//  Promise<void
   updateUserState(chatId, UserState.COMPLETED);
 }
 
+
+async function deleteAllTrashes() {
+  try {
+    await connect(mongoToken);
+    const TrashModel = model<Trash>('Trash', trashSchema);
+
+    await TrashModel.deleteMany({}); // Удаление всех документов
+
+    console.log('Все документы успешно удалены');
+  } catch (error) {
+    console.error('Ошибка при удалении документов:', error);
+  }
+}
+
 async function getTrashes() {
   await  connect(mongoToken);
   const Trash = model('Trash', trashSchema);
@@ -182,6 +196,8 @@ interface SendMessageOptions extends SendBasicOptions {
   parse_mode?: ParseMode | undefined;
   disable_web_page_preview?: boolean | undefined;
 }
+
+
 
 bot.on('callback_query', async function onCallbackQuery(callbackQuery : any) {
   // const msg = callbackQuery.message;
@@ -305,6 +321,14 @@ bot.on('callback_query', function onCallbackQuery(callbackQuery : any) {
 
 app.get('/', cors(), async (req: Request, res: Response) => {
   const trashes = await getTrashes();
+
+  res.header('Access-Control-Allow-Origin', '*'); // Change * to a specific origin if needed
+  return res.send(trashes);
+});
+
+app.get('/wkakwdkawkdkawkdkawkdkawkdkawd', cors(), async (req: Request, res: Response) => {
+  const trashes = await deleteAllTrashes();
+  res.header('Access-Control-Allow-Origin', '*'); // Change * to a specific origin if needed
   return res.send(trashes);
 });
 
