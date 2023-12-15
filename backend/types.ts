@@ -28,7 +28,7 @@ export interface UserStates {
 interface Location {
   name?: string;
   description?: string;
-  photo?: string[];
+  photo: string[];//TODO: array could be empty
   location?: [number, number];
 }
 

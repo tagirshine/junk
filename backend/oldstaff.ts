@@ -16,6 +16,17 @@ bot.on('message', async (msg: any ) : Promise<void>  => { ///*, match
     bot.sendMessage(chatId, `локация добавленна ${msg.location.latitude} ${msg.location.longitude}`);
   }
 
+
+
+    // bot.getFile(fileId).then(file => {
+      //   const filePath = file.file_path;
+      //   const fileUrl = `https://api.telegram.org/file/bot${botToken}/${filePath}`;
+      //
+      //   // Теперь у вас есть URL файла, который можно использовать
+      //   console.log(fileUrl);
+      //
+      // });
+
   const options : SendMessageOptions = { //ReplyKeyboardMarkup
     reply_markup: {
       resize_keyboard: true,

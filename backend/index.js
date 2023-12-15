@@ -20,6 +20,8 @@ const localization_1 = __importDefault(require("./localization"));
 const node_telegram_bot_api_1 = __importDefault(require("node-telegram-bot-api"));
 const cors_1 = __importDefault(require("cors"));
 const types_1 = require("./types");
+const axios_1 = __importDefault(require("axios"));
+const fs_1 = __importDefault(require("fs"));
 dotenv_1.default.config();
 const app = (0, express_1.default)();
 const port = process.env.PORT;
@@ -28,6 +30,7 @@ const botToken = process.env.TELEGRAM_TOKEN;
 const bot = new node_telegram_bot_api_1.default(botToken !== null && botToken !== void 0 ? botToken : '', { polling: true });
 const userStates = {};
 const userNewData = {};
+const imagesRootUrl = './images/';
 function updateUserState(userId, newState) {
     userStates[userId] = newState;
 }
@@ -41,6 +44,9 @@ const elem = {
 const mark = {
     inline_keyboard: [[elem]]
 };
+const options = {
+    reply_markup: mark
+};
 const pointSchema = new mongoose_1.Schema({
     type: {
         type: String,
@@ -53,22 +59,69 @@ const pointSchema = new mongoose_1.Schema({
     },
 });
 const trashSchema = new mongoose_1.Schema({
-    name: String, description: String, image: String, gps: pointSchema, report_by: String, date: String,
+    name: String, description: String, images: [String], gps: pointSchema, report_by: String, date: String,
 });
-function createLocation(lat, lon) {
+function downloadFile(fileId) {
+    return __awaiter(this, void 0, void 0, function* () {
+        const filePath = yield bot.getFile(fileId).then(file => {
+            const filePath = file.file_path;
+            const fileUrl = `https://api.telegram.org/file/bot${botToken}/${filePath}`;
+            //   // Теперь у вас есть URL файла, который можно использовать
+            //   console.log(fileUrl);
+            return fileUrl;
+        });
+        filePath && console.log(filePath, 'filePath');
+        const result = yield (0, axios_1.default)({
+            method: 'get',
+            url: filePath,
+            responseType: 'stream',
+        }).then(response => {
+            return new Promise((resolve, reject) => {
+                const outputLocationPath = imagesRootUrl + fileId + '.jpg';
+                const writer = fs_1.default.createWriteStream(outputLocationPath);
+                response.data.pipe(writer);
+                let error = null;
+                writer.on('error', err => {
+                    error = err;
+                    writer.close();
+                    console.log('ошибка во время записи файла');
+                    reject(err);
+                });
+                writer.on('close', () => {
+                    if (!error) {
+                        resolve(true);
+                        console.log('файл записан ');
+                    }
+                });
+            });
+        });
+        if (result) {
+            return fileId + '.jpg';
+        }
+    });
+}
+function createLocation(chatId) {
     return __awaiter(this, void 0, void 0, function* () {
         console.log('create location');
+        // save pictures first
+        const photos = userNewData[chatId].photo;
+        const picturesPaths = yield Promise.all(photos.map((photoId) => __awaiter(this, void 0, void 0, function* () {
+            return yield downloadFile(photoId);
+        })));
+        console.log(picturesPaths, 'picturesPaths');
         yield (0, mongoose_1.connect)(mongoToken);
         const TrashModel = (0, mongoose_1.model)('Trash', trashSchema);
+        const data = userNewData[chatId];
         const trashDocument = new TrashModel({
-            name: 'name',
-            description: 'descr',
-            image: 'image1',
-            gps: { type: "Point", coordinates: [lat, lon] },
-            report_by: 'alladin2',
-            date: '2022-01-01'
+            name: data.name,
+            description: data.description,
+            images: picturesPaths,
+            gps: { type: "Point", coordinates: data.location },
+            report_by: 'defaultUser',
+            date: new Date().toISOString(),
         });
         yield trashDocument.save();
+        updateUserState(chatId, types_1.UserState.COMPLETED);
     });
 }
 function getTrashes() {
@@ -81,7 +134,7 @@ function getTrashes() {
 bot.on('callback_query', function onCallbackQuery(callbackQuery) {
     return __awaiter(this, void 0, void 0, function* () {
         // const msg = callbackQuery.message;
-        console.log(callbackQuery.data);
+        // console.log(callbackQuery.data)
         const chatId = callbackQuery.from.id;
         if (callbackQuery.data === 'add_location') {
             // set UserState to AWAITING NAME
@@ -91,24 +144,22 @@ bot.on('callback_query', function onCallbackQuery(callbackQuery) {
     });
 });
 bot.on('message', (msg) => __awaiter(void 0, void 0, void 0, function* () {
+    console.log('any message --------------------!');
     const chatId = msg.chat.id; //TODO: check
-    // Проверяем состояние пользователя
     const currentState = getUserState(chatId);
-    // console.log(JSON.stringify(userStates));
+    console.log('chatId', chatId);
+    console.log(currentState, 'currentState');
     switch (currentState) {
         case types_1.UserState.WELCOME:
             // console.log('WELCOME')
-            const options = {
-                reply_markup: mark
-            };
             // Приветствуем пользователя
             yield bot.sendMessage(chatId, localization_1.default.welcome);
             yield bot.sendMessage(chatId, localization_1.default.welcome2 + process.env.WEBSITE_URL, options);
             break;
         case types_1.UserState.AWAITING_NAME:
-            console.log('AWAITING_NAME');
+            // console.log('AWAITING_NAME')
             if (!userNewData[chatId]) {
-                userNewData[chatId] = {}; // Инициализация пустым объектом, если ранее не существовал
+                userNewData[chatId] = { photo: [] }; // Инициализация пустым объектом, если ранее не существовал
             }
             userNewData[chatId] = Object.assign(userNewData[chatId], { name: msg.text });
             // Сохраняем имя и переходим к следующему шагу
@@ -116,9 +167,8 @@ bot.on('message', (msg) => __awaiter(void 0, void 0, void 0, function* () {
             yield bot.sendMessage(chatId, localization_1.default.input_description);
             break;
         case types_1.UserState.AWAITING_DESCRIPTION:
-            // Схожая логика для описания
             if (!userNewData[chatId]) {
-                userNewData[chatId] = {}; // Инициализация пустым объектом, если ранее не существовал
+                userNewData[chatId] = { photo: [] }; // Инициализация пустым объектом, если ранее не существовал
             }
             userNewData[chatId] = Object.assign(userNewData[chatId], { description: msg.text });
             updateUserState(chatId, types_1.UserState.AWAITING_PHOTO);
@@ -127,14 +177,16 @@ bot.on('message', (msg) => __awaiter(void 0, void 0, void 0, function* () {
         case types_1.UserState.AWAITING_PHOTO:
             // Обработка фото
             if (!userNewData[chatId]) {
-                userNewData[chatId] = {}; // Инициализация пустым объектом, если ранее не существовал
+                userNewData[chatId] = { photo: [] };
             }
             if (msg.photo) {
+                console.log('фото пришлО! ');
                 const photoArray = msg.photo;
                 const photo = photoArray[photoArray.length - 1]; // Берем самую большую версию
                 const fileId = photo.file_id;
                 userNewData[chatId] = Object.assign(userNewData[chatId], { photo: [fileId] });
-                updateUserState(chatId, types_1.UserState.AWAITING_LOCATION); // TODO: добавить сообщение
+                updateUserState(chatId, types_1.UserState.AWAITING_LOCATION);
+                yield bot.sendMessage(chatId, localization_1.default.input_location);
             }
             else {
                 yield bot.sendMessage(chatId, localization_1.default.photo_not_found);
@@ -142,34 +194,33 @@ bot.on('message', (msg) => __awaiter(void 0, void 0, void 0, function* () {
             // Сохраняем фото и переходим к следующему шагу
             break;
         case types_1.UserState.AWAITING_LOCATION:
+            console.log('AWAITING_LOCATION');
             if (msg.location) {
                 // Обрабатываем и сохраняем локацию
-                updateUserState(chatId, types_1.UserState.COMPLETED);
+                userNewData[chatId] = Object.assign(userNewData[chatId], { location: [msg.location.latitude, msg.location.longitude] });
+                yield bot.sendMessage(chatId, localization_1.default.final_message);
+                yield bot.sendMessage(chatId, localization_1.default.final_message2 + process.env.WEBSITE_URL);
+                yield createLocation(chatId);
             }
-            if (msg.photo) {
+            if (msg.photo && userNewData[chatId] && userNewData[chatId].photo) {
                 console.log('eщё одно фото c');
                 const photoArray = msg.photo;
                 const photo = photoArray[photoArray.length - 1]; // Берем самую большую версию
                 const fileId = photo.file_id;
-                userNewData[chatId] = Object.assign(userNewData[chatId], { photo: [fileId] });
+                userNewData[chatId].photo.push(fileId);
+                // userNewData[chatId] = Object.assign( userNewData[chatId] , {photo: [fileId]} )
             }
-            console.log('ZAVERSHENO LETS LOOK');
-            console.log(userNewData[chatId]);
+            // console.log(userNewData[chatId])
             break;
         case types_1.UserState.COMPLETED:
-            // bot.getFile(fileId).then(file => {
-            //   const filePath = file.file_path;
-            //   const fileUrl = `https://api.telegram.org/file/bot${botToken}/${filePath}`;
-            //
-            //   // Теперь у вас есть URL файла, который можно использовать
-            //   console.log(fileUrl);
-            //
-            // });
-            // Процесс завершен
+            console.log('COMPLETED state messafge');
+            userNewData[chatId] = { photo: [] };
+            updateUserState(chatId, types_1.UserState.WELCOME);
+            bot.sendMessage(chatId, localization_1.default.welcome, options);
             break;
         default:
-            // Начальное состояние или ошибка
-            updateUserState(chatId, types_1.UserState.WELCOME);
+            // catch errors?
+            console.log('default state message');
             break;
     }
 }));

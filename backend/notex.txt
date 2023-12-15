@@ -9,5 +9,6 @@ use final
 final> db.createUser({user: "finalUser", pwd: "password", roles: ["readWrite","dbAdmin"]})
 
 
+copy to nginx
 
-сохранять картинку из диалога, описание, название
+cp /front/dist/* /var/www/html

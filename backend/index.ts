@@ -4,27 +4,26 @@ import { Schema, model, connect, Document } from 'mongoose';
 import {InlineKeyboardMarkup, InlineKeyboardButton} from "node-telegram-bot-api";
 import localization from "./localization";
 import TelegramBot, {
-   ForceReply,
-   ParseMode,
+  ForceReply,
+  ParseMode,
   ReplyKeyboardMarkup,
   ReplyKeyboardRemove,
 } from 'node-telegram-bot-api';
 import cors from 'cors';
 import { UserState, UserStates , UserNewData} from './types';
-
+import axios from 'axios';
+import fs from 'fs';
 dotenv.config();
-
 const app: Express = express();
 const port = process.env.PORT;
-
 const mongoToken: string = process.env.MONGO_TOKEN ?? '';
 
 const botToken = process.env.TELEGRAM_TOKEN;
 const bot = new TelegramBot(botToken??'' , {polling: true});
 
 const userStates : UserStates = {};
-const userNewData : UserNewData = {};
-
+const userNewData : UserNewData = {}
+const imagesRootUrl = process.env.IMAGES_ROOT_URL ?? './images/';
 function updateUserState(userId: number, newState: UserState): void {
   userStates[userId] = newState;
 }
@@ -41,6 +40,9 @@ const mark : InlineKeyboardMarkup = {
   inline_keyboard: [[ elem ]]
 }
 
+const options : SendMessageOptions = { //ReplyKeyboardMarkup
+  reply_markup: mark
+};
 
 interface Point {
   type: 'Point';
@@ -50,7 +52,7 @@ interface Point {
 interface Trash extends Document {
   name: string;
   description: string;
-  image: string;
+  images: string[];
   gps: Point;
   report_by: string;
   date: string;
@@ -71,26 +73,93 @@ const pointSchema = new Schema<Point>({
 
 
 const trashSchema = new Schema<Trash>({
-  name: String, description: String,   image: String,  gps: pointSchema,  report_by: String,  date: String,
+  name: String, description: String,   images: [String],  gps: pointSchema,  report_by: String,  date: String,
 });
 
+async function downloadFile (fileId: string) : Promise<any> {
+  const filePath = await bot.getFile(fileId).then(file => {
+    const filePath = file.file_path;
+    const fileUrl = `https://api.telegram.org/file/bot${botToken}/${filePath}`;
 
-async function createLocation(lat: number, lon: number) : Promise<void> {
-  console.log('create location')
-  
-  
-  await connect(mongoToken);
-  const TrashModel = model<Trash>('Trash', trashSchema);
-  const trashDocument = new TrashModel({
-    name: 'name',
-    description: 'descr',
-    image: 'image1',
-    gps: { type: "Point", coordinates: [ lat, lon ] },
-    report_by: 'alladin2',
-    date: '2022-01-01'
+
+    //   // Теперь у вас есть URL файла, который можно использовать
+    //   console.log(fileUrl);
+    return fileUrl;
   });
 
+  filePath && console.log(filePath, 'filePath')
+
+  const result = await axios({
+    method: 'get',
+    url: filePath,
+    responseType: 'stream',
+  }).then(response => {
+    return new Promise<boolean>((resolve, reject) => {
+
+      const outputLocationPath = imagesRootUrl+fileId+'.jpg';
+      const writer = fs.createWriteStream(outputLocationPath);
+
+      response.data.pipe(writer);
+
+
+      let error: any = null;
+      writer.on('error', err => {
+        error = err;
+        console.log('ошибка во время записи файла')
+
+        writer.close();
+        reject(err);
+      });
+      writer.on('close', () => {
+        if (!error) {
+          console.log('файл записан ')
+
+          resolve(true);
+
+        }
+      });
+    })
+  })
+
+
+  if (result) {
+    return fileId+'.jpg';
+  }
+}
+
+
+async function createLocation(chatId: number) :  Promise<void> {//  Promise<void> {
+  console.log('create location')
+
+  // save pictures first
+  const photos = userNewData[chatId].photo
+
+  const picturesPaths = await Promise.all(photos.map(async (photoId: string) => {
+    return await downloadFile(photoId);
+  }));
+
+
+
+  console.log(picturesPaths, 'picturesPaths')
+
+  await connect(mongoToken);
+  const TrashModel = model<Trash>('Trash', trashSchema);
+
+
+  const data = userNewData[chatId];
+  const trashDocument = new TrashModel({
+    name: data.name,
+    description: data.description,
+
+    images: picturesPaths,
+
+    gps: { type: "Point", coordinates: data.location },
+    report_by: 'defaultUser', // TODO: add user
+    date: new Date().toISOString(),
+  });
   await trashDocument.save();
+
+  updateUserState(chatId, UserState.COMPLETED);
 }
 
 async function getTrashes() {
@@ -115,7 +184,7 @@ interface SendMessageOptions extends SendBasicOptions {
 
 bot.on('callback_query', async function onCallbackQuery(callbackQuery : any) {
   // const msg = callbackQuery.message;
-  console.log(callbackQuery.data)
+  // console.log(callbackQuery.data)
   const chatId = callbackQuery.from.id;
   if (callbackQuery.data==='add_location') {
     // set UserState to AWAITING NAME
@@ -125,27 +194,25 @@ bot.on('callback_query', async function onCallbackQuery(callbackQuery : any) {
 });
 
 bot.on('message', async (msg: TelegramBot.Message) => {
+
+  console.log('any message --------------------!')
   const chatId: number  = msg.chat.id; //TODO: check
 
-  // Проверяем состояние пользователя
   const currentState = getUserState(chatId);
-  // console.log(JSON.stringify(userStates));
+  console.log('chatId', chatId)
+  console.log(currentState, 'currentState')
   switch (currentState) {
     case UserState.WELCOME:
       // console.log('WELCOME')
-
-      const options : SendMessageOptions = { //ReplyKeyboardMarkup
-        reply_markup: mark
-      };
       // Приветствуем пользователя
       await bot.sendMessage(chatId, localization.welcome);
       await bot.sendMessage(chatId, localization.welcome2+process.env.WEBSITE_URL, options);
       break;
     case UserState.AWAITING_NAME:
-      console.log('AWAITING_NAME')
+      // console.log('AWAITING_NAME')
 
       if (!userNewData[chatId]) {
-        userNewData[chatId] = {}; // Инициализация пустым объектом, если ранее не существовал
+        userNewData[chatId] = {photo: []}; // Инициализация пустым объектом, если ранее не существовал
       }
       userNewData[chatId] = Object.assign( userNewData[chatId] , {name: msg.text} )
 
@@ -155,10 +222,8 @@ bot.on('message', async (msg: TelegramBot.Message) => {
       await bot.sendMessage(chatId, localization.input_description);
       break;
     case UserState.AWAITING_DESCRIPTION:
-
-      // Схожая логика для описания
       if (!userNewData[chatId]) {
-        userNewData[chatId] = {}; // Инициализация пустым объектом, если ранее не существовал
+        userNewData[chatId] = {photo: []}; // Инициализация пустым объектом, если ранее не существовал
       }
       userNewData[chatId] = Object.assign( userNewData[chatId] , {description: msg.text} )
       updateUserState(chatId, UserState.AWAITING_PHOTO);
@@ -168,17 +233,20 @@ bot.on('message', async (msg: TelegramBot.Message) => {
     case UserState.AWAITING_PHOTO:
       // Обработка фото
       if (!userNewData[chatId]) {
-        userNewData[chatId] = {}; // Инициализация пустым объектом, если ранее не существовал
+        userNewData[chatId] = {photo:[]};
       }
 
       if (msg.photo) {
+
+        console.log('фото пришлО! ')
         const photoArray = msg.photo;
         const photo = photoArray[photoArray.length - 1]; // Берем самую большую версию
         const fileId = photo.file_id;
 
         userNewData[chatId] = Object.assign( userNewData[chatId] , {photo: [fileId]} )
 
-        updateUserState(chatId, UserState.AWAITING_LOCATION); // TODO: добавить сообщение
+        updateUserState(chatId, UserState.AWAITING_LOCATION);
+        await bot.sendMessage(chatId, localization.input_location);
       } else {
         await bot.sendMessage(chatId, localization.photo_not_found);
       }
@@ -186,40 +254,41 @@ bot.on('message', async (msg: TelegramBot.Message) => {
       // Сохраняем фото и переходим к следующему шагу
       break;
     case UserState.AWAITING_LOCATION:
+
+      console.log('AWAITING_LOCATION')
       if (msg.location) {
+
         // Обрабатываем и сохраняем локацию
-        updateUserState(chatId, UserState.COMPLETED);
+        userNewData[chatId] = Object.assign( userNewData[chatId] , {location: [msg.location.latitude, msg.location.longitude]} );
+        await bot.sendMessage(chatId, localization.final_message);
+        await bot.sendMessage(chatId, localization.final_message2+process.env.WEBSITE_URL);
+        await createLocation(chatId);
+
+
       }
-      if (msg.photo) {
+      if (msg.photo && userNewData[chatId] && userNewData[chatId].photo) {
         console.log('eщё одно фото c')
         const photoArray = msg.photo;
         const photo = photoArray[photoArray.length - 1]; // Берем самую большую версию
         const fileId = photo.file_id;
-
-        userNewData[chatId] = Object.assign( userNewData[chatId] , {photo: [fileId]} )
+        userNewData[chatId].photo.push(fileId)
+        // userNewData[chatId] = Object.assign( userNewData[chatId] , {photo: [fileId]} )
       }
 
-      console.log('ZAVERSHENO LETS LOOK')
-      console.log(userNewData[chatId])
+      // console.log(userNewData[chatId])
 
       break;
     case UserState.COMPLETED:
 
+      console.log('COMPLETED state messafge')
+      userNewData[chatId] = {photo: []};
 
-      // bot.getFile(fileId).then(file => {
-      //   const filePath = file.file_path;
-      //   const fileUrl = `https://api.telegram.org/file/bot${botToken}/${filePath}`;
-      //
-      //   // Теперь у вас есть URL файла, который можно использовать
-      //   console.log(fileUrl);
-      //
-      // });
-
-      // Процесс завершен
+      updateUserState(chatId, UserState.WELCOME);
+      bot.sendMessage(chatId, localization.welcome, options);
       break;
     default:
-      // Начальное состояние или ошибка
-      updateUserState(chatId, UserState.WELCOME);
+      // catch errors?
+      console.log('default state message')
       break;
   }
 });
