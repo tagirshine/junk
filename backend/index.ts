@@ -104,8 +104,9 @@ async function downloadFile (fileId: string) : Promise<any> {
 
       let error: any = null;
       writer.on('error', err => {
-        error = err;
         console.log('ошибка во время записи файла')
+
+        error = err;
 
         writer.close();
         reject(err);
@@ -113,7 +114,7 @@ async function downloadFile (fileId: string) : Promise<any> {
       writer.on('close', () => {
         if (!error) {
           console.log('файл записан ')
-
+          console.log(outputLocationPath)
           resolve(true);
 
         }
